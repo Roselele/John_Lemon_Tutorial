@@ -10,6 +10,8 @@ public class PlayerMovement : MonoBehaviour
     Rigidbody m_Rigidbody;
     AudioSource m_AudioSource;
     Quaternion m_Rotation = Quaternion.identity;
+    float m_SpeedMultiplier = 1f;
+    Coroutine m_SpeedBoostRoutine;
     // Start is called before the first frame update
     void Start()
     {
@@ -49,7 +51,25 @@ public class PlayerMovement : MonoBehaviour
 
     void OnAnimatorMove()
     {
-        m_Rigidbody.MovePosition(m_Rigidbody.position + m_Movement * m_Animator.deltaPosition.magnitude);
+        m_Rigidbody.MovePosition(m_Rigidbody.position + m_Movement * m_Animator.deltaPosition.magnitude * m_SpeedMultiplier);
         m_Rigidbody.MoveRotation(m_Rotation);
+    }
+
+    public void ApplySpeedBoost(float multiplier, float duration)
+    {
+        if (m_SpeedBoostRoutine != null)
+        {
+            StopCoroutine(m_SpeedBoostRoutine);
+        }
+
+        m_SpeedMultiplier = Mathf.Max(1f, multiplier);
+        m_SpeedBoostRoutine = StartCoroutine(ResetSpeedBoostAfter(duration));
+    }
+
+    private IEnumerator ResetSpeedBoostAfter(float duration)
+    {
+        yield return new WaitForSeconds(duration);
+        m_SpeedMultiplier = 1f;
+        m_SpeedBoostRoutine = null;
     }
 }

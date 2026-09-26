@@ -37,12 +37,10 @@ public class GridBuilder : MonoBehaviour
 
     private void OnValidate()
     {
-        if (maskBoxes == null || maskBoxes.Count == 0)
+        if (tileSize <= 0f)
         {
-            return;
+            tileSize = 0.1f;
         }
-
-        BuildGrid();
     }
 
     private void OnDrawGizmos()
@@ -54,7 +52,7 @@ public class GridBuilder : MonoBehaviour
 
         if (cells == null || cells.Count == 0)
         {
-            BuildGrid();
+            BuildGrid(false);
         }
 
         if (cells == null || cells.Count == 0)
@@ -91,6 +89,11 @@ public class GridBuilder : MonoBehaviour
 
     public void BuildGrid()
     {
+        BuildGrid(true);
+    }
+
+    private void BuildGrid(bool createObjects)
+    {
         // 重建前清理旧的格子对象，避免修改参数后重复生成。
         ClearGrid();
 
@@ -124,7 +127,7 @@ public class GridBuilder : MonoBehaviour
                 continue;
             }
 
-            AddMaskArea(mask);
+            AddMaskArea(mask, createObjects);
         }
     }
 
@@ -152,7 +155,7 @@ public class GridBuilder : MonoBehaviour
         return null;
     }
 
-    private void AddMaskArea(BoxCollider mask)
+    private void AddMaskArea(BoxCollider mask, bool createObjects)
     {
         // 使用 origin 和 tileSize 计算全局坐标，确保多个 Box 的格线无缝对齐。
         if (tileSize <= 0f)
@@ -213,7 +216,7 @@ public class GridBuilder : MonoBehaviour
                     isWalkable = true
                 };
 
-                if (safeTileVisualPrefab != null)
+                if (createObjects && safeTileVisualPrefab != null)
                 {
                     GameObject visual = Instantiate(safeTileVisualPrefab, cell.worldCenter + Vector3.up * 0.02f, Quaternion.Euler(90f, 0f, 0f), transform);
                     visual.transform.localScale = Vector3.one * tileSize;
@@ -221,7 +224,7 @@ public class GridBuilder : MonoBehaviour
                     cell.visualObject = visual;
                 }
 
-                if (trapPrefab != null)
+                if (createObjects && trapPrefab != null)
                 {
                     GameObject trap = Instantiate(trapPrefab, cell.worldCenter + Vector3.up * 0.25f, Quaternion.identity, transform);
                     trap.SetActive(false);
