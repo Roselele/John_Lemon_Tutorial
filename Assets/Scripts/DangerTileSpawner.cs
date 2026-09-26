@@ -20,6 +20,7 @@ public class DangerTileSpawner : MonoBehaviour
 
     public void SpawnDangerTiles()
     {
+        // 为每个可行走格子预生成一个隐藏的危险图案。
         ClearDangerTiles();
 
         if (gridBuilder == null)
@@ -39,6 +40,7 @@ public class DangerTileSpawner : MonoBehaviour
                 continue;
             }
 
+            // Quad 平躺在地面上，X 轴旋转 90 度。
             GameObject tile = Instantiate(dangerTilePrefab, cell.worldCenter + Vector3.up * tileHeight, Quaternion.identity, transform);
             tile.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
             tile.transform.localScale = new Vector3(gridBuilder.tileSize * tileScaleMultiplier, gridBuilder.tileSize * tileScaleMultiplier, 1f);
@@ -50,6 +52,7 @@ public class DangerTileSpawner : MonoBehaviour
 
     public void ShowDangerTileForCell(GridCell cell)
     {
+        // 由 SequenceController 在每一轮中控制危险图案的显隐。
         if (cell == null)
         {
             return;

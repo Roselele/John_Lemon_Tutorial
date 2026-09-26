@@ -4,11 +4,13 @@ using UnityEngine.AI;
 
 public class GridBuilder : MonoBehaviour
 {
+    // 多个 BoxCollider 的并集定义网格生成区域。
     [Header("Grid mask")]
     public List<BoxCollider> maskBoxes = new List<BoxCollider>();
     public Vector3 origin = Vector3.zero;
     public float tileSize = 1.5f;
     public float sampleMaxDistance = 0.75f;
+    public LayerMask floorLayers = ~0;
 
     public bool showGridInScene = true;
     public bool showCellIndex = true;
@@ -60,6 +62,7 @@ public class GridBuilder : MonoBehaviour
             return;
         }
 
+        // 只在 Scene 视图绘制调试网格，不额外生成可见的网格物体。
         foreach (var kvp in cells)
         {
             GridCell cell = kvp.Value;
@@ -88,6 +91,7 @@ public class GridBuilder : MonoBehaviour
 
     public void BuildGrid()
     {
+        // 重建前清理旧的格子对象，避免修改参数后重复生成。
         ClearGrid();
 
         List<BoxCollider> activeMasks = new List<BoxCollider>();
@@ -150,33 +154,47 @@ public class GridBuilder : MonoBehaviour
 
     private void AddMaskArea(BoxCollider mask)
     {
+        // 使用 origin 和 tileSize 计算全局坐标，确保多个 Box 的格线无缝对齐。
         Bounds bounds = mask.bounds;
 
-        for (float x = bounds.min.x; x < bounds.max.x; x += tileSize)
+        int minX = Mathf.FloorToInt((bounds.min.x - origin.x) / tileSize);
+        int maxX = Mathf.CeilToInt((bounds.max.x - origin.x) / tileSize) - 1;
+        int minZ = Mathf.FloorToInt((bounds.min.z - origin.z) / tileSize);
+        int maxZ = Mathf.CeilToInt((bounds.max.z - origin.z) / tileSize) - 1;
+
+        for (int x = minX; x <= maxX; x++)
         {
-            for (float z = bounds.min.z; z < bounds.max.z; z += tileSize)
+            for (int z = minZ; z <= maxZ; z++)
             {
-                Vector3 cellCenter = new Vector3(x + tileSize * 0.5f, 0f, z + tileSize * 0.5f);
-                if (!mask.bounds.Contains(cellCenter))
+                Vector3 cellCenter = new Vector3(
+                    origin.x + (x + 0.5f) * tileSize,
+                    bounds.center.y,
+                    origin.z + (z + 0.5f) * tileSize);
+
+                if (!ContainsXZ(mask.bounds, cellCenter))
                 {
                     continue;
                 }
 
-                Ray ray = new Ray(cellCenter + Vector3.up * 10f, Vector3.down);
-                if (!Physics.Raycast(ray, out RaycastHit hit, 20f))
+                if (!TryGetFloorPoint(cellCenter, out Vector3 floorPoint))
                 {
-                    continue;
+                    // 边缘 Raycast 失败时，使用 NavMesh 作为高度采样的兜底。
+                    NavMeshHit fallbackHit;
+                    if (!NavMesh.SamplePosition(cellCenter + Vector3.up * 10f, out fallbackHit, 20f, NavMesh.AllAreas))
+                    {
+                        continue;
+                    }
+
+                    floorPoint = fallbackHit.position;
                 }
 
                 NavMeshHit navHit;
-                if (!NavMesh.SamplePosition(hit.point, out navHit, sampleMaxDistance, NavMesh.AllAreas))
+                if (!NavMesh.SamplePosition(floorPoint, out navHit, sampleMaxDistance, NavMesh.AllAreas))
                 {
                     continue;
                 }
 
-                Vector2Int coord = new Vector2Int(
-                    Mathf.FloorToInt((cellCenter.x - origin.x) / tileSize),
-                    Mathf.FloorToInt((cellCenter.z - origin.z) / tileSize));
+                Vector2Int coord = new Vector2Int(x, z);
 
                 if (cells.ContainsKey(coord))
                 {
@@ -188,7 +206,7 @@ public class GridBuilder : MonoBehaviour
                     coord = coord,
                     worldCenter = new Vector3(
                         origin.x + coord.x * tileSize + tileSize * 0.5f,
-                        hit.point.y,
+                        navHit.position.y,
                         origin.z + coord.y * tileSize + tileSize * 0.5f),
                     isWalkable = true
                 };
@@ -211,6 +229,42 @@ public class GridBuilder : MonoBehaviour
                 cells.Add(coord, cell);
             }
         }
+    }
+
+    private bool ContainsXZ(Bounds bounds, Vector3 position)
+    {
+        return position.x >= bounds.min.x && position.x <= bounds.max.x
+            && position.z >= bounds.min.z && position.z <= bounds.max.z;
+    }
+
+    private bool TryGetFloorPoint(Vector3 cellCenter, out Vector3 floorPoint)
+    {
+        // 忽略 mask 自身的 Collider，避免把 Box 当成地面。
+        Ray ray = new Ray(cellCenter + Vector3.up * 10f, Vector3.down);
+        RaycastHit[] hits = Physics.RaycastAll(ray, 20f, floorLayers, QueryTriggerInteraction.Ignore);
+
+        System.Array.Sort(hits, (first, second) => first.distance.CompareTo(second.distance));
+        foreach (RaycastHit hit in hits)
+        {
+            bool isMaskCollider = false;
+            foreach (BoxCollider mask in maskBoxes)
+            {
+                if (mask != null && hit.collider == mask)
+                {
+                    isMaskCollider = true;
+                    break;
+                }
+            }
+
+            if (!isMaskCollider)
+            {
+                floorPoint = hit.point;
+                return true;
+            }
+        }
+
+        floorPoint = default;
+        return false;
     }
 
     public bool IsInsideAnyMask(Vector3 worldPosition)
@@ -248,6 +302,11 @@ public class GridBuilder : MonoBehaviour
             if (cell.trapObject != null)
             {
                 Destroy(cell.trapObject);
+            }
+
+            if (cell.handObject != null)
+            {
+                Destroy(cell.handObject);
             }
         }
 
