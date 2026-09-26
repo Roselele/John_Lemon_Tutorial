@@ -183,20 +183,15 @@ public class GridBuilder : MonoBehaviour
                     continue;
                 }
 
-                if (!TryGetFloorPoint(cellCenter, out Vector3 floorPoint))
+                // 只查询 NavMesh，不用物理射线，因此玩家、幽灵、石像鬼等 Collider 不会遮挡格子采样。
+                NavMeshHit navHit;
+                if (!NavMesh.SamplePosition(cellCenter, out navHit, 20f, NavMesh.AllAreas))
                 {
-                    // 边缘 Raycast 失败时，使用 NavMesh 作为高度采样的兜底。
-                    NavMeshHit fallbackHit;
-                    if (!NavMesh.SamplePosition(cellCenter + Vector3.up * 10f, out fallbackHit, 20f, NavMesh.AllAreas))
-                    {
-                        continue;
-                    }
-
-                    floorPoint = fallbackHit.position;
+                    continue;
                 }
 
-                NavMeshHit navHit;
-                if (!NavMesh.SamplePosition(floorPoint, out navHit, sampleMaxDistance, NavMesh.AllAreas))
+                Vector2 centerOffset = new Vector2(navHit.position.x - cellCenter.x, navHit.position.z - cellCenter.z);
+                if (centerOffset.sqrMagnitude > sampleMaxDistance * sampleMaxDistance)
                 {
                     continue;
                 }
@@ -242,42 +237,6 @@ public class GridBuilder : MonoBehaviour
     {
         return position.x >= bounds.min.x && position.x <= bounds.max.x
             && position.z >= bounds.min.z && position.z <= bounds.max.z;
-    }
-
-    private bool TryGetFloorPoint(Vector3 cellCenter, out Vector3 floorPoint)
-    {
-        // 忽略 mask 自身的 Collider，避免把 Box 当成地面。
-        Ray ray = new Ray(cellCenter + Vector3.up * 10f, Vector3.down);
-        RaycastHit[] hits = Physics.RaycastAll(ray, 20f, floorLayers, QueryTriggerInteraction.Ignore);
-
-        System.Array.Sort(hits, (first, second) => first.distance.CompareTo(second.distance));
-        foreach (RaycastHit hit in hits)
-        {
-            // 玩家站在格子上时会先被射线命中，不能把玩家表面当成地面高度。
-            if (hit.collider.GetComponentInParent<PlayerMovement>() != null || hit.collider.CompareTag("Player"))
-            {
-                continue;
-            }
-
-            bool isMaskCollider = false;
-            foreach (BoxCollider mask in maskBoxes)
-            {
-                if (mask != null && hit.collider == mask)
-                {
-                    isMaskCollider = true;
-                    break;
-                }
-            }
-
-            if (!isMaskCollider)
-            {
-                floorPoint = hit.point;
-                return true;
-            }
-        }
-
-        floorPoint = default;
-        return false;
     }
 
     public bool IsInsideAnyMask(Vector3 worldPosition)
