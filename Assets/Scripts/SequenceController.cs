@@ -20,7 +20,15 @@ public class SequenceController : MonoBehaviour
     public GameObject wall;
     public float wallLiftHeight = 3f;
 
+    [Header("Hand 阶段格子边框")]
+    public Material gridLineMaterial;
+    public Color gridLineColor = Color.white;
+    public float gridLineWidth = 0.025f;
+    public float gridLineHeight = 0.04f;
+
     private List<GridCell> safePathCells = new List<GridCell>();
+    private readonly List<LineRenderer> gridLines = new List<LineRenderer>();
+    private Material runtimeGridLineMaterial;
     private bool wallHasBeenLifted;
 
     private void Start()
@@ -46,6 +54,8 @@ public class SequenceController : MonoBehaviour
 
         if (dangerTileSpawner != null)
         {
+            dangerTileSpawner.playerObject = player != null ? player.gameObject : null;
+            dangerTileSpawner.gameEnding = gameEnding;
             dangerTileSpawner.SpawnDangerTiles();
         }
 
@@ -95,12 +105,88 @@ public class SequenceController : MonoBehaviour
                 }
             }
 
+            // Hand 阶段开启地面格子边框，方便看清各个格子的范围。
+            ShowGridLines();
+
             // 第三阶段：依次用当前安全格作为唯一避开的格子，生成 Hand 波次。
             for (int i = 0; i < safePathCells.Count; i++)
             {
                 yield return StartCoroutine(DropHandWave(safePathCells[i]));
                 yield return new WaitForSeconds(stepDuration);
             }
+
+            HideGridLines();
+        }
+    }
+
+    private void ShowGridLines()
+    {
+        HideGridLines();
+
+        Material material = gridLineMaterial;
+        if (material == null)
+        {
+            Shader shader = Shader.Find("Sprites/Default");
+            if (shader == null)
+            {
+                Debug.LogWarning("找不到默认线条 Shader，请给 SequenceController 指定 Grid Line Material。", this);
+                return;
+            }
+
+            runtimeGridLineMaterial = new Material(shader);
+            material = runtimeGridLineMaterial;
+        }
+
+        float halfSize = gridBuilder.tileSize * 0.5f;
+        foreach (GridCell cell in gridBuilder.WalkableCells)
+        {
+            if (cell == null)
+            {
+                continue;
+            }
+
+            // 每个可行走格子绘制一圈世界空间边框。
+            GameObject lineObject = new GameObject("GridCellOutline_" + cell.coord);
+            lineObject.transform.SetParent(transform, true);
+
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.loop = true;
+            line.positionCount = 4;
+            line.startWidth = gridLineWidth;
+            line.endWidth = gridLineWidth;
+            line.startColor = gridLineColor;
+            line.endColor = gridLineColor;
+            line.sharedMaterial = material;
+
+            float y = cell.worldCenter.y + gridLineHeight;
+            line.SetPosition(0, new Vector3(cell.worldCenter.x - halfSize, y, cell.worldCenter.z - halfSize));
+            line.SetPosition(1, new Vector3(cell.worldCenter.x + halfSize, y, cell.worldCenter.z - halfSize));
+            line.SetPosition(2, new Vector3(cell.worldCenter.x + halfSize, y, cell.worldCenter.z + halfSize));
+            line.SetPosition(3, new Vector3(cell.worldCenter.x - halfSize, y, cell.worldCenter.z + halfSize));
+            gridLines.Add(line);
+        }
+    }
+
+    private void HideGridLines()
+    {
+        foreach (LineRenderer line in gridLines)
+        {
+            if (line != null)
+            {
+                Destroy(line.gameObject);
+            }
+        }
+
+        gridLines.Clear();
+    }
+
+    private void OnDestroy()
+    {
+        HideGridLines();
+        if (runtimeGridLineMaterial != null)
+        {
+            Destroy(runtimeGridLineMaterial);
         }
     }
 

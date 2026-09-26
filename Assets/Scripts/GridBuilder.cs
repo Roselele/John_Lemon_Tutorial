@@ -155,6 +155,12 @@ public class GridBuilder : MonoBehaviour
     private void AddMaskArea(BoxCollider mask)
     {
         // 使用 origin 和 tileSize 计算全局坐标，确保多个 Box 的格线无缝对齐。
+        if (tileSize <= 0f)
+        {
+            Debug.LogError("GridBuilder 的 tileSize 必须大于 0。", this);
+            return;
+        }
+
         Bounds bounds = mask.bounds;
 
         int minX = Mathf.FloorToInt((bounds.min.x - origin.x) / tileSize);
@@ -171,7 +177,8 @@ public class GridBuilder : MonoBehaviour
                     bounds.center.y,
                     origin.z + (z + 0.5f) * tileSize);
 
-                if (!ContainsXZ(mask.bounds, cellCenter))
+                // 只有格子中心位于 Mask 的 XZ 范围内时才生成该格。
+                if (!ContainsXZ(bounds, cellCenter))
                 {
                     continue;
                 }
@@ -246,6 +253,12 @@ public class GridBuilder : MonoBehaviour
         System.Array.Sort(hits, (first, second) => first.distance.CompareTo(second.distance));
         foreach (RaycastHit hit in hits)
         {
+            // 玩家站在格子上时会先被射线命中，不能把玩家表面当成地面高度。
+            if (hit.collider.GetComponentInParent<PlayerMovement>() != null || hit.collider.CompareTag("Player"))
+            {
+                continue;
+            }
+
             bool isMaskCollider = false;
             foreach (BoxCollider mask in maskBoxes)
             {

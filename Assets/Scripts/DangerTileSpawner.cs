@@ -6,6 +6,8 @@ public class DangerTileSpawner : MonoBehaviour
     [Header("References")]
     public GridBuilder gridBuilder;
     public GameObject dangerTilePrefab;
+    public GameObject playerObject;
+    public GameEnding gameEnding;
 
     [Header("Settings")]
     public float tileHeight = 0.08f;
@@ -44,6 +46,27 @@ public class DangerTileSpawner : MonoBehaviour
             GameObject tile = Instantiate(dangerTilePrefab, cell.worldCenter + Vector3.up * tileHeight, Quaternion.identity, transform);
             tile.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
             tile.transform.localScale = new Vector3(gridBuilder.tileSize * tileScaleMultiplier, gridBuilder.tileSize * tileScaleMultiplier, 1f);
+
+            // 危险图案同时作为地面触发区，只有图案显示时才会参与碰撞检测。
+            BoxCollider triggerCollider = tile.GetComponent<BoxCollider>();
+            if (triggerCollider == null)
+            {
+                triggerCollider = tile.AddComponent<BoxCollider>();
+            }
+
+            triggerCollider.isTrigger = true;
+            triggerCollider.center = Vector3.zero;
+            triggerCollider.size = new Vector3(1f, 1f, 0.1f);
+
+            TrapTrigger trapTrigger = tile.GetComponent<TrapTrigger>();
+            if (trapTrigger == null)
+            {
+                trapTrigger = tile.AddComponent<TrapTrigger>();
+            }
+
+            trapTrigger.playerObject = playerObject;
+            trapTrigger.gameEnding = gameEnding;
+
             tile.SetActive(false);
             cell.trapObject = tile;
             spawnedDangerTiles.Add(tile);
