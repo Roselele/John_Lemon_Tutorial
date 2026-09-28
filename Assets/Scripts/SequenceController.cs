@@ -9,7 +9,8 @@ public class SequenceController : MonoBehaviour
     public DangerTileSpawner dangerTileSpawner;
 
     [Header("Timing")]
-    public float stepDuration = 3f;
+    public float safeTileInterval = 3f;
+    public float handDropInterval = 3f;
     public float handStartHeight = 3f;
     public float handDropDuration = 0.5f;
 
@@ -30,6 +31,8 @@ public class SequenceController : MonoBehaviour
     private readonly List<LineRenderer> gridLines = new List<LineRenderer>();
     private Material runtimeGridLineMaterial;
     private bool wallHasBeenLifted;
+    private bool trapDisabled;
+    private Coroutine sequenceRoutine;
 
     private void Start()
     {
@@ -50,6 +53,11 @@ public class SequenceController : MonoBehaviour
         }
 
         gridBuilder.BuildGrid();
+        if (!gridBuilder.GenerateRandomSafePath())
+        {
+            return;
+        }
+
         safePathCells = gridBuilder.GetCellsForCoords(gridBuilder.safePathCoords);
 
         if (dangerTileSpawner != null)
@@ -61,8 +69,41 @@ public class SequenceController : MonoBehaviour
 
         if (safePathCells.Count > 0)
         {
-            StartCoroutine(PlayPathSequence());
+            sequenceRoutine = StartCoroutine(PlayPathSequence());
         }
+    }
+
+    public void DisableTrapSequence()
+    {
+        if (trapDisabled)
+        {
+            return;
+        }
+
+        trapDisabled = true;
+        if (sequenceRoutine != null)
+        {
+            StopCoroutine(sequenceRoutine);
+            sequenceRoutine = null;
+        }
+
+        // 关闭所有提示和危险图案，并清理当前已生成的手。
+        foreach (GridCell cell in gridBuilder.WalkableCells)
+        {
+            cell.SetVisual(false);
+            if (dangerTileSpawner != null)
+            {
+                dangerTileSpawner.HideDangerTileForCell(cell);
+            }
+
+            if (cell.handObject != null)
+            {
+                Destroy(cell.handObject);
+                cell.handObject = null;
+            }
+        }
+
+        HideGridLines();
     }
 
     private IEnumerator PlayPathSequence()
@@ -92,7 +133,7 @@ public class SequenceController : MonoBehaviour
                     }
                 }
 
-                yield return new WaitForSeconds(stepDuration);
+                yield return new WaitForSeconds(safeTileInterval);
             }
 
             // 第二阶段开始前，清除所有安全格和危险图案。
@@ -112,7 +153,7 @@ public class SequenceController : MonoBehaviour
             for (int i = 0; i < safePathCells.Count; i++)
             {
                 yield return StartCoroutine(DropHandWave(safePathCells[i]));
-                yield return new WaitForSeconds(stepDuration);
+                yield return new WaitForSeconds(handDropInterval);
             }
 
             HideGridLines();
@@ -244,8 +285,6 @@ public class SequenceController : MonoBehaviour
 
             yield return null;
         }
-
-        yield return new WaitForSeconds(Mathf.Max(0f, stepDuration - handDropDuration));
 
         // 本轮没有触发玩家的 Hand 在下一轮前全部销毁。
         foreach (GridCell cell in gridBuilder.WalkableCells)

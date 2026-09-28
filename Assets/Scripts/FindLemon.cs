@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Rendering.PostProcessing;
 using UnityEngine.UI;
 
 public class FindLemon : MonoBehaviour
@@ -13,6 +14,14 @@ public class FindLemon : MonoBehaviour
     [Header("音效")]
     public AudioSource audioSource;
     public AudioClip pickupSound;
+    public AudioSource breathingAudioSource;
+    public AudioClip breathingClip;
+
+    [Header("加速期间的后处理")]
+    public PostProcessVolume fearVolume;
+    [Range(0f, 1f)] public float fearVolumeMinWeight = 0.65f;
+    [Range(0f, 1f)] public float fearVolumeMaxWeight = 1f;
+    public float fearPulseSpeed = 2f;
 
     [Header("拾取设置")]
     public bool destroyOnPickup = true;
@@ -21,6 +30,8 @@ public class FindLemon : MonoBehaviour
     private bool collected;
     private PlayerMovement cachedPlayer;
     private Collider[] pickupColliders;
+    private Coroutine fearEffectRoutine;
+    private float originalFearVolumeWeight;
 
     private void Awake()
     {
@@ -32,6 +43,11 @@ public class FindLemon : MonoBehaviour
         {
             pickupImage.enabled = false;
             pickupImage.raycastTarget = false;
+        }
+
+        if (fearVolume != null)
+        {
+            originalFearVolumeWeight = fearVolume.weight;
         }
     }
 
@@ -102,6 +118,7 @@ public class FindLemon : MonoBehaviour
 
         collected = true;
         playerMovement.ApplySpeedBoost(speedMultiplier, speedBoostDuration);
+        StartFearEffect();
         ShowPickupImage();
         PlayPickupSound();
 
@@ -118,6 +135,66 @@ public class FindLemon : MonoBehaviour
                 itemCollider.enabled = false;
             }
         }
+    }
+
+    private void StartFearEffect()
+    {
+        if (fearEffectRoutine != null)
+        {
+            StopCoroutine(fearEffectRoutine);
+        }
+
+        if (fearVolume != null)
+        {
+            fearVolume.weight = Mathf.Clamp01(fearVolumeMinWeight);
+        }
+        else
+        {
+            Debug.LogWarning("FindLemon: 请指定专用的 Fear Volume 和 Post Process Profile。", this);
+        }
+
+        if (breathingAudioSource != null && breathingClip != null)
+        {
+            breathingAudioSource.Stop();
+            breathingAudioSource.clip = breathingClip;
+            breathingAudioSource.loop = true;
+            breathingAudioSource.Play();
+        }
+        else if (breathingClip != null)
+        {
+            Debug.LogWarning("FindLemon: 已指定喘息音频，但没有指定独立的 Breathing Audio Source。", this);
+        }
+
+        fearEffectRoutine = StartCoroutine(PlayFearEffect());
+    }
+
+    private IEnumerator PlayFearEffect()
+    {
+        float elapsed = 0f;
+        while (elapsed < speedBoostDuration)
+        {
+            elapsed += Time.deltaTime;
+            if (fearVolume != null)
+            {
+                float pulse = (Mathf.Sin(elapsed * fearPulseSpeed * Mathf.PI * 2f) + 1f) * 0.5f;
+                fearVolume.weight = Mathf.Lerp(fearVolumeMinWeight, fearVolumeMaxWeight, pulse);
+            }
+
+            yield return null;
+        }
+
+        if (fearVolume != null)
+        {
+            fearVolume.weight = originalFearVolumeWeight;
+        }
+
+        if (breathingAudioSource != null)
+        {
+            breathingAudioSource.Stop();
+            breathingAudioSource.clip = null;
+        }
+
+        fearEffectRoutine = null;
     }
 
     private void ShowPickupImage()

@@ -24,6 +24,11 @@ public class GridBuilder : MonoBehaviour
     public Color blockedColor = new Color(1f, 0.2f, 0.2f, 0.25f);
 
     [Header("Safe route")]
+    public Vector2Int startSafeCoord = Vector2Int.zero;
+    public Vector2Int endSafeCoord = Vector2Int.zero;
+    [Min(2)] public int minimumSafePathCount = 2;
+    [Min(0)] public int safePathCountVariance = 3;
+    [Min(1f)] public float maxStepDistanceInTiles = 2.828427f;
     public List<Vector2Int> safePathCoords = new List<Vector2Int>();
 
     private readonly Dictionary<Vector2Int, GridCell> cells = new Dictionary<Vector2Int, GridCell>();
@@ -40,6 +45,15 @@ public class GridBuilder : MonoBehaviour
         if (tileSize <= 0f)
         {
             tileSize = 0.1f;
+        }
+
+        if (!Application.isPlaying)
+        {
+            // 参数变化后清空旧索引，Scene Gizmo 下次绘制时会按新 Origin 重建。
+            cells.Clear();
+#if UNITY_EDITOR
+            UnityEditor.SceneView.RepaintAll();
+#endif
         }
     }
 
@@ -90,6 +104,22 @@ public class GridBuilder : MonoBehaviour
     public void BuildGrid()
     {
         BuildGrid(true);
+    }
+
+    [ContextMenu("Rebuild Grid Preview")]
+    private void RebuildGridPreview()
+    {
+        if (Application.isPlaying)
+        {
+            Debug.LogWarning("请在 Play Mode 外刷新 Grid 预览。", this);
+            return;
+        }
+
+        cells.Clear();
+        BuildGrid(false);
+#if UNITY_EDITOR
+        UnityEditor.SceneView.RepaintAll();
+#endif
     }
 
     private void BuildGrid(bool createObjects)
@@ -153,6 +183,134 @@ public class GridBuilder : MonoBehaviour
         }
 
         return null;
+    }
+
+    public bool GenerateRandomSafePath()
+    {
+        if (!cells.ContainsKey(startSafeCoord) || !cells.ContainsKey(endSafeCoord))
+        {
+            Debug.LogError("安全路线起点或终点不在可行走网格中，请检查 startSafeCoord 和 endSafeCoord。", this);
+            safePathCoords.Clear();
+            return false;
+        }
+
+        if (startSafeCoord == endSafeCoord)
+        {
+            Debug.LogError("安全路线起点和终点不能是同一个格子。", this);
+            safePathCoords.Clear();
+            return false;
+        }
+
+        int minCount = Mathf.Max(2, minimumSafePathCount);
+        int maxCount = Mathf.Min(cells.Count, minCount + Mathf.Max(0, safePathCountVariance));
+        float maxDistance = maxStepDistanceInTiles * tileSize;
+        List<int> targetCounts = new List<int>();
+        for (int count = minCount; count <= maxCount; count++)
+        {
+            targetCounts.Add(count);
+        }
+
+        // 随机选择优先尝试的路线格数，若不可达再尝试区间内其他长度。
+        for (int i = targetCounts.Count - 1; i > 0; i--)
+        {
+            int swapIndex = Random.Range(0, i + 1);
+            int temp = targetCounts[i];
+            targetCounts[i] = targetCounts[swapIndex];
+            targetCounts[swapIndex] = temp;
+        }
+
+        List<Vector2Int> generatedPath = null;
+        foreach (int targetCount in targetCounts)
+        {
+            List<Vector2Int> candidatePath = new List<Vector2Int> { startSafeCoord };
+            HashSet<Vector2Int> visited = new HashSet<Vector2Int> { startSafeCoord };
+
+            if (FindRandomizedPath(startSafeCoord, endSafeCoord, targetCount, maxDistance, visited, candidatePath))
+            {
+                generatedPath = candidatePath;
+                break;
+            }
+        }
+
+        if (generatedPath == null)
+        {
+            Debug.LogError("无法在设定格数范围和相邻距离限制下生成安全路线，请降低最少格数/浮动范围或放宽距离限制。", this);
+            safePathCoords.Clear();
+            return false;
+        }
+
+        safePathCoords.Clear();
+        safePathCoords.AddRange(generatedPath);
+        return true;
+    }
+
+    private bool FindRandomizedPath(
+        Vector2Int current,
+        Vector2Int destination,
+        int targetCount,
+        float maxDistance,
+        HashSet<Vector2Int> visited,
+        List<Vector2Int> path)
+    {
+        if (current == destination)
+        {
+            return path.Count == targetCount;
+        }
+
+        if (path.Count >= targetCount)
+        {
+            return false;
+        }
+
+        List<Vector2Int> candidates = new List<Vector2Int>();
+        foreach (Vector2Int coord in cells.Keys)
+        {
+            if (visited.Contains(coord))
+            {
+                continue;
+            }
+
+            Vector3 currentPosition = cells[current].worldCenter;
+            Vector3 candidatePosition = cells[coord].worldCenter;
+            float distance = Vector2.Distance(
+                new Vector2(currentPosition.x, currentPosition.z),
+                new Vector2(candidatePosition.x, candidatePosition.z));
+
+            if (distance <= maxDistance)
+            {
+                candidates.Add(coord);
+            }
+        }
+
+        // 随机打乱候选邻格的尝试顺序，从而产生不同的有效路线。
+        for (int i = candidates.Count - 1; i > 0; i--)
+        {
+            int swapIndex = Random.Range(0, i + 1);
+            Vector2Int temp = candidates[i];
+            candidates[i] = candidates[swapIndex];
+            candidates[swapIndex] = temp;
+        }
+
+        foreach (Vector2Int next in candidates)
+        {
+            if (next == destination && path.Count + 1 != targetCount)
+            {
+                continue;
+            }
+
+            visited.Add(next);
+            path.Add(next);
+
+            if (FindRandomizedPath(next, destination, targetCount, maxDistance, visited, path))
+            {
+                return true;
+            }
+
+            visited.Remove(next);
+            path.RemoveAt(path.Count - 1);
+        }
+
+        return false;
     }
 
     private void AddMaskArea(BoxCollider mask, bool createObjects)
